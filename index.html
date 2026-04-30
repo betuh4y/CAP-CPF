@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+  <head>
+    <meta charset="UTF-8">
+    <title>Gerenciador de Boletos</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        background: #f0f2f5;
+        padding: 20px;
+        display: flex;
+        justify-content: center;
+      }
+
+      .card {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        max-width: 600px;
+      }
+
+      h1 {
+        color: #1a73e8;
+        font-size: 22px;
+        text-align: center;
+      }
+
+      .item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px;
+        border-bottom: 1px solid #eee;
+      }
+
+      .item:last-child {
+        border-bottom: none;
+      }
+
+      .code {
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        color: #333;
+        font-size: 14px;
+        word-break: break-all;
+        margin-right: 10px;
+      }
+
+      button {
+        background: #1a73e8;
+        color: white;
+        border: none;
+        padding: 8px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        min-width: 80px;
+      }
+
+      button:active {
+        background: #0d47a1;
+      }
+
+      .success {
+        background: #28a745 !important;
+      }
+    </style>
+    <script type="text/javascript" src="./index.js" defer=""></script>
+    <link rel="stylesheet" href="./index.css">
+  </head>
+
+  <body>
+    <div class="card">
+      <h1>CAP BOLETO CPF </h1>
+      <div id="lista"></div>
+    </div>
+
+    <script>
+      const boletos = [
+        "34191570070008202924089847840009614340000102333",
+        "50990000010000000000000084029875114340000036465",
+        "50990000010000000000000079323192214360000150780",
+        "34191570070137319722562197020001114360000033500",
+        "34191090089815096924882865600009814360000011500"
+      ];
+
+      const container = document.getElementById('lista');
+      boletos.forEach(texto => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.innerHTML = `<span class="code">${texto}</span><button onclick="copiar(this, '${texto}')">Copiar</button>`;
+        container.appendChild(div);
+      });
+
+      function copiar(btn, texto) {
+        navigator.clipboard.writeText(texto);
+        const original = btn.innerText;
+        btn.innerText = "Copiado!";
+        btn.classList.add('success');
+        setTimeout(() => {
+          btn.innerText = original;
+          btn.classList.remove('success');
+        }, 1500);
+      }
+    </script>
+
+  </body>
+
+</html>
