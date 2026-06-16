@@ -4,6 +4,8 @@
   <head>
     <meta charset="UTF-8">
     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <!-- QZ Tray client library for USB printing -->
+    <script src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <title>Sistema de Vendas (PDV) - VIDA SAUDAVEL</title>
     <link rel="stylesheet" href="./index.css">
@@ -2949,7 +2951,7 @@ Digite a quantidade em gramas (ex: 350):`);
               ])
               .then(() => {
                 alert("Venda registrada e estoque atualizado com sucesso!");
-                printSaleReceipt(saleData, amountGiven);
+                window.printSaleReceiptQZ(saleData, amountGiven);
                 updateDailySalesByPayment(paymentType, total);
                 cancelActiveSale();
                 document.getElementById("paymentModal").style.display = "none";
@@ -3148,7 +3150,7 @@ Digite a quantidade em gramas (ex: 350):`);
 
         // Footer
         add(CMD.alignC, txt(footer)); nl();
-        add(txt('www.vidasaudavel.com.br')); nl();
+        add(txt('Pdv')); nl();
         nl(); nl();
         add(CMD.cut);
 
@@ -3350,7 +3352,170 @@ Digite a quantidade em gramas (ex: 350):`);
         w.document.close();
       }
 
-      window.openPrinterModal  = () => { document.getElementById('printerModal').style.display = 'block'; };
+      // ════════════════════════════════════════
+      // QZ TRAY – USB PRINTING
+      // ════════════════════════════════════════
+      let qzConnected   = false;
+      let printerMode   = localStorage.getItem('printerMode') || 'usb'; // 'usb' | 'bluetooth'
+      let usbPrinterName = localStorage.getItem('usbPrinterName') || '';
+
+      function saveConfig() {
+        const n = document.getElementById('usbPrinterName');
+        if (n) { usbPrinterName = n.value; localStorage.setItem('usbPrinterName', n.value); }
+      }
+
+      window.setPrinterMode = function(mode) {
+        printerMode = mode;
+        localStorage.setItem('printerMode', mode);
+        document.getElementById('usbPanel').style.display  = mode === 'usb'       ? 'block' : 'none';
+        document.getElementById('btPanel').style.display   = mode === 'bluetooth'  ? 'block' : 'none';
+        const uBtn = document.getElementById('modeUsbBtn');
+        const bBtn = document.getElementById('modeBtBtn');
+        if (uBtn) {
+          uBtn.style.background   = mode === 'usb'        ? 'var(--brand-lt)' : 'var(--bg)';
+          uBtn.style.color        = mode === 'usb'        ? '#fff' : 'var(--ink-2)';
+          uBtn.style.borderColor  = mode === 'usb'        ? 'var(--brand-lt)' : 'var(--line)';
+        }
+        if (bBtn) {
+          bBtn.style.background   = mode === 'bluetooth'  ? 'var(--brand-lt)' : 'var(--bg)';
+          bBtn.style.color        = mode === 'bluetooth'  ? '#fff' : 'var(--ink-2)';
+          bBtn.style.borderColor  = mode === 'bluetooth'  ? 'var(--brand-lt)' : 'var(--line)';
+        }
+        if (mode === 'usb') checkQZ();
+      };
+
+      async function checkQZ() {
+        const dot  = document.getElementById('qzDot');
+        const txt  = document.getElementById('qzStatusText');
+        const btn  = document.getElementById('connectQzBtn');
+        if (!dot) return;
+
+        // QZ Tray exposes window.qz when loaded
+        if (typeof qz === 'undefined') {
+          dot.style.background = '#f59e0b';
+          txt.textContent = 'QZ Tray não detectado — instale e inicie o programa';
+          if (btn) btn.textContent = '🔌 Tentar Conectar';
+          return;
+        }
+
+        if (qz.websocket.isActive()) {
+          qzConnected = true;
+          dot.style.background = '#22c55e';
+          txt.textContent = 'QZ Tray conectado ✓';
+          if (btn) btn.textContent = '✅ Conectado';
+          document.getElementById('printerStatusLabel').textContent = '🟢 Impressora';
+          updatePrinterStatus(true, 'USB – ' + (usbPrinterName || 'impressora padrão'));
+        } else {
+          dot.style.background = '#9ca3af';
+          txt.textContent = 'QZ Tray instalado mas não conectado';
+          if (btn) btn.textContent = '🔌 Conectar QZ Tray';
+        }
+      }
+
+      window.connectQZ = async function() {
+        const btn = document.getElementById('connectQzBtn');
+        if (typeof qz === 'undefined') {
+          alert('QZ Tray não está instalado ou não está em execução.\n\nBaixe em: https://qz.io/download/\nInstale, inicie e tente novamente.');
+          return;
+        }
+        try {
+          if (btn) { btn.disabled = true; btn.textContent = '⏳ Conectando...'; }
+          if (!qz.websocket.isActive()) await qz.websocket.connect();
+          qzConnected = true;
+          await checkQZ();
+        } catch(e) {
+          alert('Erro ao conectar QZ Tray: ' + e.message);
+          const dot = document.getElementById('qzDot');
+          const txt = document.getElementById('qzStatusText');
+          if (dot) dot.style.background = '#ef4444';
+          if (txt) txt.textContent = 'Falha na conexão — ' + e.message;
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      };
+
+      window.listPrinters = async function() {
+        const res = document.getElementById('printerListResult');
+        if (!res) return;
+        if (typeof qz === 'undefined' || !qz.websocket.isActive()) {
+          res.style.display = 'block';
+          res.textContent = '❌ Conecte o QZ Tray primeiro.';
+          return;
+        }
+        try {
+          const printers = await qz.printers.find();
+          res.style.display = 'block';
+          res.innerHTML = '<strong>Impressoras disponíveis:</strong><br>' +
+            printers.map(p => `<div style="padding:3px 0;cursor:pointer;color:var(--brand-md);" onclick="document.getElementById('usbPrinterName').value='${p}';saveConfig();">→ ${p}</div>`).join('');
+        } catch(e) {
+          res.style.display = 'block';
+          res.textContent = '❌ Erro: ' + e.message;
+        }
+      };
+
+      async function printViaQZ(data) {
+        if (typeof qz === 'undefined') throw new Error('QZ Tray não encontrado.');
+        if (!qz.websocket.isActive()) await qz.websocket.connect();
+
+        const printer = usbPrinterName ||
+          await qz.printers.getDefault().catch(() => null);
+        if (!printer) throw new Error('Nenhuma impressora configurada. Defina o nome da impressora no painel.');
+
+        const config = qz.configs.create(printer, { encoding: 'Cp850', copies: 1 });
+        // Convert Uint8Array receipt to base64 for QZ
+        const receipt = buildReceipt._lastSale
+          ? buildReceipt._lastSale
+          : null;
+        // We'll receive the raw bytes via printSaleReceiptQZ
+        return { config, printer };
+      }
+
+      // Override printSaleReceipt to handle both USB and BT
+      const _origPrintSaleReceipt = printSaleReceipt;
+
+      window.printSaleReceiptQZ = async function(sale, amountGiven) {
+        const autoPrint = document.getElementById('printerAutoPrint');
+        if (autoPrint && !autoPrint.checked) return;
+
+        const bytes = buildReceipt(sale, amountGiven);
+
+        if (printerMode === 'usb') {
+          if (typeof qz === 'undefined' || !qz.websocket.isActive()) {
+            console.warn('QZ Tray não conectado — usando fallback de navegador');
+            browserPrintFallback(sale, amountGiven);
+            return;
+          }
+          try {
+            const printer = usbPrinterName ||
+              await qz.printers.getDefault().catch(() => '');
+            if (!printer) { browserPrintFallback(sale, amountGiven); return; }
+            const config = qz.configs.create(printer, { encoding: 'Cp850' });
+            // Convert to base64 array for QZ raw mode
+            const b64 = btoa(String.fromCharCode(...bytes));
+            await qz.print(config, [{ type: 'raw', format: 'base64', data: b64 }]);
+          } catch(e) {
+            console.warn('Erro QZ:', e.message);
+            browserPrintFallback(sale, amountGiven);
+          }
+        } else {
+          // Bluetooth mode
+          if (printerConnected) {
+            try { await sendToPrinter(bytes); } catch(e) { browserPrintFallback(sale, amountGiven); }
+          } else {
+            browserPrintFallback(sale, amountGiven);
+          }
+        }
+      };
+
+      // Auto-check QZ on modal open
+      window.openPrinterModal = function() {
+        document.getElementById('printerModal').style.display = 'block';
+        // Restore saved values
+        const nameEl = document.getElementById('usbPrinterName');
+        if (nameEl && usbPrinterName) nameEl.value = usbPrinterName;
+        setPrinterMode(printerMode);
+      };
+
       window.closePrinterModal = () => { document.getElementById('printerModal').style.display = 'none'; };
       window.connectPrinter    = connectPrinter;
       window.testPrint         = testPrint;
@@ -6926,18 +7091,72 @@ Digite a quantidade em gramas (ex: 350):`);
         <label for="printerAutoPrint" style="font-size:13px;font-weight:500;margin:0;">Imprimir automaticamente após cada venda</label>
       </div>
 
-      <!-- Buttons -->
-      <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <button onclick="connectPrinter()" id="connectPrinterBtn" style="flex:1;justify-content:center;margin:0;">
-          📶 Conectar Bluetooth
-        </button>
-        <button onclick="testPrint()" style="background:var(--bg)!important;color:var(--ink-2)!important;border:1px solid var(--line)!important;margin:0;padding:10px 16px;">
-          🖨️ Teste
-        </button>
+      <!-- Modo de conexão -->
+      <div style="margin-bottom:14px;">
+        <label style="font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:8px;display:block;">Modo de conexão</label>
+        <div style="display:flex;gap:8px;">
+          <button id="modeUsbBtn" onclick="setPrinterMode('usb')"
+            style="flex:1;justify-content:center;margin:0;background:var(--brand-lt)!important;border:2px solid var(--brand-lt)!important;">
+            🔌 USB (QZ Tray)
+          </button>
+          <button id="modeBtBtn" onclick="setPrinterMode('bluetooth')"
+            style="flex:1;justify-content:center;margin:0;background:var(--bg)!important;color:var(--ink-2)!important;border:2px solid var(--line)!important;">
+            📶 Bluetooth
+          </button>
+        </div>
       </div>
-      <div style="margin-top:12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:11px;color:#1e40af;line-height:1.6;">
-        ℹ️ Use <strong>Google Chrome</strong> ou <strong>Edge</strong>. Ative o Bluetooth do dispositivo e ligue a impressora antes de conectar.
+
+      <!-- USB panel -->
+      <div id="usbPanel">
+        <div id="qzStatusCard" style="padding:12px 14px;border-radius:8px;border:1px solid var(--line);background:var(--bg);margin-bottom:12px;font-size:13px;">
+          <span id="qzDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#9ca3af;margin-right:8px;"></span>
+          <span id="qzStatusText">Verificando QZ Tray...</span>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:5px;display:block;">Nome da impressora USB</label>
+          <input type="text" id="usbPrinterName" placeholder="Ex: POS-58, ZJ-5890K, Thermal Printer..."
+            style="margin:0;" oninput="saveConfig()">
+          <small style="color:var(--ink-4);font-size:11px;margin-top:3px;display:block;">
+            Painel de Controle → Dispositivos e Impressoras → nome exato da sua POS 58
+          </small>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="connectQZ()" id="connectQzBtn" style="flex:1;justify-content:center;margin:0;">
+            🔌 Conectar QZ Tray
+          </button>
+          <button onclick="listPrinters()" style="background:var(--bg)!important;color:var(--ink-2)!important;border:1px solid var(--line)!important;margin:0;padding:10px 14px;">
+            📋 Listar Impressoras
+          </button>
+          <button onclick="testPrint()" style="background:var(--bg)!important;color:var(--ink-2)!important;border:1px solid var(--line)!important;margin:0;padding:10px 14px;">
+            🖨️ Teste
+          </button>
+        </div>
+        <div style="margin-top:12px;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:11px;color:#166534;line-height:1.7;">
+          <strong>Como instalar o QZ Tray:</strong><br>
+          1. Acesse <a href="https://qz.io/download/" target="_blank" style="color:#166534;">qz.io/download</a> e baixe gratuitamente<br>
+          2. Instale e <strong>mantenha rodando</strong> (ícone na bandeja do Windows)<br>
+          3. Conecte a impressora USB e clique em "Conectar QZ Tray"<br>
+          4. Pronto — todas as vendas imprimirão automaticamente
+        </div>
       </div>
+
+      <!-- Bluetooth panel -->
+      <div id="btPanel" style="display:none;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="connectPrinter()" id="connectPrinterBtn" style="flex:1;justify-content:center;margin:0;">
+            📶 Conectar Bluetooth
+          </button>
+          <button onclick="testPrint()" style="background:var(--bg)!important;color:var(--ink-2)!important;border:1px solid var(--line)!important;margin:0;padding:10px 14px;">
+            🖨️ Teste
+          </button>
+        </div>
+        <div style="margin-top:12px;padding:10px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:11px;color:#1e40af;line-height:1.6;">
+          ℹ️ Use <strong>Google Chrome</strong> ou <strong>Edge</strong>. Ative o Bluetooth e ligue a impressora antes de conectar.
+        </div>
+      </div>
+
+      <!-- Teste resultado -->
+      <div id="printerListResult" style="display:none;margin-top:10px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:8px;font-size:12px;max-height:120px;overflow-y:auto;"></div>
     </div>
   </div>
 
