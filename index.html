@@ -11197,7 +11197,391 @@ Digite a quantidade em gramas (ex: 350):`);
     ['dashFilterEnd','lucFilterEnd'].forEach(id => { const el=document.getElementById(id); if(el) el.value=end; });
   });
   </script>
-    <script src="pix-pdv-patch.js"></script>
+    <script src="// ══════════════════════════════════════════════════════════════
+// PIX MERCADO PAGO — INTEGRAÇÃO PDV VIDA SAUDÁVEL
+// Cole este bloco inteiro antes do </body> do seu HTML
+// Troque PIX_API_URL pela URL da sua API (Vercel ou Netlify)
+// ══════════════════════════════════════════════════════════════
+
+(function() {
+  // ──────────────────────────────────────────
+  // 🔧 CONFIGURAÇÃO — troque pela sua URL
+  // ──────────────────────────────────────────
+  const PIX_API_URL = 'https://ava-cyan-three.vercel.app'; 
+  // Se estiver usando Netlify, coloque a URL do seu site Netlify
+  // Ex: 'https://meu-site.netlify.app'
+
+  // ──────────────────────────────────────────
+  // Estado do PIX
+  // ──────────────────────────────────────────
+  let pixPaymentId  = null;
+  let pixPollTimer  = null;
+  let pixGerado     = false;
+
+  // ──────────────────────────────────────────
+  // Injeta o painel PIX no modal de pagamento
+  // ──────────────────────────────────────────
+  function injetarPainelPix() {
+    if (document.getElementById('pixPainelMP')) return; // já injetado
+
+    const paymentModal = document.getElementById('paymentModal');
+    if (!paymentModal) return;
+
+    const modalContent = paymentModal.querySelector('.modal-content');
+    if (!modalContent) return;
+
+    // Cria o painel PIX
+    const painel = document.createElement('div');
+    painel.id = 'pixPainelMP';
+    painel.style.cssText = `
+      display: none;
+      margin-top: 14px;
+      border: 1.5px solid #00b4d8;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #f0f9ff;
+    `;
+
+    painel.innerHTML = `
+      <div style="background: linear-gradient(135deg,#0077b6,#00b4d8); padding: 12px 16px; color:#fff; display:flex; align-items:center; gap:8px;">
+        <span style="font-size:20px;">⚡</span>
+        <div>
+          <div style="font-weight:700; font-size:13px;">PIX via Mercado Pago</div>
+          <div style="font-size:11px; opacity:.85;">QR Code gerado na hora</div>
+        </div>
+        <button id="pixGerarBtn" onclick="pixGerar()" style="
+          margin-left:auto; margin-bottom:0; padding:8px 16px; font-size:13px; font-weight:700;
+          background:#fff; color:#0077b6; border-radius:8px; white-space:nowrap;
+          box-shadow:0 2px 8px rgba(0,0,0,.15);
+        ">🔄 Gerar QR Code</button>
+      </div>
+
+      <!-- Loading -->
+      <div id="pixLoading" style="display:none; padding:20px; text-align:center; color:#0077b6;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:8px;">⏳ Gerando PIX...</div>
+        <div style="width:40px; height:40px; border:3px solid #bde0fe; border-top-color:#0077b6;
+                    border-radius:50%; animation:pixSpin .8s linear infinite; margin:0 auto;"></div>
+      </div>
+
+      <!-- QR Code -->
+      <div id="pixQrArea" style="display:none; padding:18px;">
+        <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap;">
+          
+          <!-- QR Image -->
+          <div style="text-align:center; flex-shrink:0;">
+            <div style="background:#fff; border:2px solid #bde0fe; border-radius:12px; padding:10px; display:inline-block;">
+              <img id="pixQrImg" src="" alt="QR Code PIX" style="width:160px; height:160px; display:block; border-radius:6px;">
+            </div>
+            <div style="font-size:11px; color:#0077b6; font-weight:600; margin-top:6px;">Escaneie com o app do banco</div>
+          </div>
+
+          <!-- Dados -->
+          <div style="flex:1; min-width:180px;">
+            <div style="font-size:11px; font-weight:700; color:#0077b6; text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px;">Valor a pagar</div>
+            <div id="pixValorDisplay" style="font-size:22px; font-weight:900; color:#0077b6; margin-bottom:12px;">R$ 0,00</div>
+            
+            <div style="font-size:11px; font-weight:700; color:#555; text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px;">PIX Copia e Cola</div>
+            <div id="pixCodigo" style="
+              font-family: monospace; font-size:10px; color:#444;
+              background:#fff; border:1px solid #bde0fe; border-radius:8px;
+              padding:8px 10px; word-break:break-all; line-height:1.6;
+              max-height:54px; overflow:hidden; margin-bottom:8px;
+            "></div>
+            <button onclick="pixCopiar()" id="pixCopiarBtn" style="
+              padding:8px 16px; font-size:12px; font-weight:700; margin:0 6px 0 0;
+              background:#0077b6; color:#fff; border-radius:8px;
+            ">📋 Copiar código</button>
+            <button onclick="pixCancelar()" style="
+              padding:8px 12px; font-size:12px; font-weight:600; margin:0;
+              background:#f0f9ff; color:#888; border:1px solid #bde0fe; border-radius:8px;
+            ">✕ Cancelar</button>
+
+            <!-- Status aguardando -->
+            <div id="pixAguardando" style="margin-top:12px; display:flex; align-items:center; gap:8px; font-size:12px; color:#888;">
+              <span id="pixDots" style="display:flex; gap:3px;">
+                <span class="pixDot"></span><span class="pixDot"></span><span class="pixDot"></span>
+              </span>
+              Aguardando pagamento...
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pago! -->
+      <div id="pixPagoArea" style="display:none; padding:18px; text-align:center;">
+        <div style="font-size:40px; margin-bottom:8px;">✅</div>
+        <div style="font-size:16px; font-weight:800; color:#166534; margin-bottom:4px;">PIX Confirmado!</div>
+        <div style="font-size:13px; color:#555;">Pagamento aprovado pelo Mercado Pago</div>
+        <button onclick="pixConfirmarVenda()" style="
+          margin-top:14px; padding:12px 28px; font-size:14px; font-weight:800;
+          background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff;
+          border-radius:12px; box-shadow:0 4px 14px rgba(34,197,94,.4);
+        ">🎉 Confirmar Venda</button>
+      </div>
+
+      <!-- Erro -->
+      <div id="pixErroArea" style="display:none; padding:14px 16px; background:#fff0f0; color:#c62828; font-size:13px; border-top:1px solid #ffcdd2;"></div>
+    `;
+
+    // Insere antes do botão confirmar
+    const confirmBtn = modalContent.querySelector('#confirmPaymentBtn');
+    if (confirmBtn) {
+      modalContent.insertBefore(painel, confirmBtn);
+    } else {
+      modalContent.appendChild(painel);
+    }
+
+    // CSS de animações
+    if (!document.getElementById('pixCss')) {
+      const style = document.createElement('style');
+      style.id = 'pixCss';
+      style.textContent = `
+        @keyframes pixSpin { to { transform: rotate(360deg); } }
+        @keyframes pixBlink {
+          0%,80%,100% { transform: scale(.5); opacity:.3; }
+          40% { transform: scale(1); opacity:1; }
+        }
+        .pixDot {
+          display: inline-block; width:7px; height:7px;
+          background:#0077b6; border-radius:50%;
+          animation: pixBlink 1.4s ease-in-out infinite;
+        }
+        .pixDot:nth-child(2) { animation-delay:.2s; }
+        .pixDot:nth-child(3) { animation-delay:.4s; }
+      `;
+      document.head.appendChild(style);
+    }
+  }
+
+  // ──────────────────────────────────────────
+  // Mostra/oculta painel conforme tipo de pag
+  // ──────────────────────────────────────────
+  function verificarMostrarPix() {
+    const painel = document.getElementById('pixPainelMP');
+    if (!painel) return;
+
+    // Pega os pagamentos adicionados (array global do PDV)
+    const pags = window.pagamentos || [];
+    const temPix = pags.some(p =>
+      p.type === 'Pix' || p.type === 'pix' || (p.type||'').toLowerCase().includes('pix')
+    );
+
+    if (temPix && !pixGerado) {
+      painel.style.display = 'block';
+      // Preenche valor do pix
+      const pixPag = pags.find(p => (p.type||'').toLowerCase().includes('pix'));
+      if (pixPag) {
+        document.getElementById('pixValorDisplay').textContent =
+          'R$ ' + pixPag.amount.toFixed(2).replace('.', ',');
+      }
+    } else if (!temPix) {
+      painel.style.display = 'none';
+      pixCancelar();
+    }
+  }
+
+  // ──────────────────────────────────────────
+  // Gerar PIX
+  // ──────────────────────────────────────────
+  window.pixGerar = async function() {
+    const pags = window.pagamentos || [];
+    const pixPag = pags.find(p => (p.type||'').toLowerCase().includes('pix'));
+    if (!pixPag) { alert('Adicione primeiro um pagamento do tipo PIX.'); return; }
+
+    const valor = pixPag.amount;
+    if (!valor || valor <= 0) { alert('Valor PIX inválido.'); return; }
+
+    // UI: Loading
+    document.getElementById('pixLoading').style.display = 'block';
+    document.getElementById('pixQrArea').style.display = 'none';
+    document.getElementById('pixPagoArea').style.display = 'none';
+    document.getElementById('pixErroArea').style.display = 'none';
+    document.getElementById('pixGerarBtn').disabled = true;
+    document.getElementById('pixGerarBtn').textContent = '⏳ Gerando...';
+
+    try {
+      const res = await fetch(`${PIX_API_URL}/api/criar-pix`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: valor,
+          description: `Venda PDV Vida Saudável - R$ ${valor.toFixed(2)}`
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao gerar PIX');
+
+      // Preenche QR
+      const img = document.getElementById('pixQrImg');
+      img.src = data.qrBase64
+        ? `data:image/png;base64,${data.qrBase64}`
+        : `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(data.qrCode)}`;
+
+      document.getElementById('pixCodigo').textContent = data.qrCode;
+      pixPaymentId = data.paymentId;
+      pixGerado = true;
+
+      // UI: mostrar QR
+      document.getElementById('pixLoading').style.display = 'none';
+      document.getElementById('pixQrArea').style.display = 'block';
+      document.getElementById('pixGerarBtn').textContent = '🔄 Novo QR';
+      document.getElementById('pixGerarBtn').disabled = false;
+
+      // Desabilita botão confirmar normal enquanto aguarda PIX
+      const confirmBtn = document.getElementById('confirmPaymentBtn');
+      if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.style.opacity = '.4';
+        confirmBtn.title = 'Aguardando confirmação do PIX pelo Mercado Pago';
+      }
+
+      // Inicia polling
+      pixIniciarPoll();
+
+    } catch (err) {
+      document.getElementById('pixLoading').style.display = 'none';
+      document.getElementById('pixGerarBtn').disabled = false;
+      document.getElementById('pixGerarBtn').textContent = '🔄 Tentar Novamente';
+      const erroEl = document.getElementById('pixErroArea');
+      erroEl.style.display = 'block';
+      erroEl.textContent = '❌ ' + (err.message || 'Erro desconhecido. Verifique sua conexão.');
+    }
+  };
+
+  // ──────────────────────────────────────────
+  // Polling status
+  // ──────────────────────────────────────────
+  function pixIniciarPoll() {
+    if (pixPollTimer) clearInterval(pixPollTimer);
+    pixPollTimer = setInterval(async () => {
+      if (!pixPaymentId) return;
+      try {
+        const res = await fetch(`${PIX_API_URL}/api/status-pix?id=${pixPaymentId}`);
+        const data = await res.json();
+        if (data.approved || data.status === 'approved') {
+          clearInterval(pixPollTimer);
+          // PIX PAGO!
+          document.getElementById('pixQrArea').style.display = 'none';
+          document.getElementById('pixPagoArea').style.display = 'block';
+          // Toca um beep (feedback sonoro)
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.frequency.value = 880;
+            gain.gain.setValueAtTime(0.3, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+            osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+          } catch(e) {}
+        }
+      } catch(e) {}
+    }, 5000);
+  }
+
+  // ──────────────────────────────────────────
+  // Confirmar venda após PIX aprovado
+  // ──────────────────────────────────────────
+  window.pixConfirmarVenda = function() {
+    pixGerado = false;
+    // Reabilita o botão confirmar e clica automaticamente
+    const confirmBtn = document.getElementById('confirmPaymentBtn');
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.style.opacity = '';
+      confirmBtn.click();
+    }
+    // Limpa estado
+    pixPaymentId = null;
+    if (pixPollTimer) { clearInterval(pixPollTimer); pixPollTimer = null; }
+    document.getElementById('pixPainelMP').style.display = 'none';
+    pixResetar();
+  };
+
+  // ──────────────────────────────────────────
+  // Cancelar / resetar
+  // ──────────────────────────────────────────
+  window.pixCancelar = function() {
+    if (pixPollTimer) { clearInterval(pixPollTimer); pixPollTimer = null; }
+    pixPaymentId = null;
+    pixGerado = false;
+    pixResetar();
+    // Reabilita botão confirmar
+    const confirmBtn = document.getElementById('confirmPaymentBtn');
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.style.opacity = ''; }
+  };
+
+  function pixResetar() {
+    const ids = ['pixLoading','pixQrArea','pixPagoArea','pixErroArea'];
+    ids.forEach(id => { const el = document.getElementById(id); if(el) el.style.display='none'; });
+    const btn = document.getElementById('pixGerarBtn');
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Gerar QR Code'; }
+  }
+
+  // ──────────────────────────────────────────
+  // Copiar código
+  // ──────────────────────────────────────────
+  window.pixCopiar = function() {
+    const code = document.getElementById('pixCodigo').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+      const btn = document.getElementById('pixCopiarBtn');
+      btn.textContent = '✅ Copiado!';
+      setTimeout(() => { btn.textContent = '📋 Copiar código'; }, 2000);
+    });
+  };
+
+  // ──────────────────────────────────────────
+  // Intercepta o addPayment original para
+  // mostrar painel PIX automaticamente
+  // ──────────────────────────────────────────
+  const _origAddPayment = window.addPayment;
+  window.addPayment = function() {
+    _origAddPayment && _origAddPayment();
+    setTimeout(verificarMostrarPix, 100);
+  };
+
+  const _origRemovePayment = window.removePayment;
+  window.removePayment = function(i) {
+    _origRemovePayment && _origRemovePayment(i);
+    setTimeout(verificarMostrarPix, 100);
+  };
+
+  // ──────────────────────────────────────────
+  // Injeta painel quando o modal de pagamento
+  // for aberto (observa o DOM)
+  // ──────────────────────────────────────────
+  const observer = new MutationObserver(() => {
+    const modal = document.getElementById('paymentModal');
+    if (modal && modal.style.display !== 'none') {
+      injetarPainelPix();
+      // Reseta ao abrir novo modal
+      if (!pixGerado) pixResetar();
+    }
+  });
+
+  // Também intercepta finalizarVendaBtn para injetar antes de abrir
+  document.addEventListener('DOMContentLoaded', () => {
+    const finalizarBtn = document.getElementById('finalizarVendaBtn');
+    if (finalizarBtn) {
+      const _origClick = finalizarBtn.onclick;
+      finalizarBtn.addEventListener('click', () => {
+        setTimeout(() => {
+          injetarPainelPix();
+          pixCancelar(); // reseta estado ao abrir nova venda
+        }, 150);
+      });
+    }
+
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
+  });
+
+  // Fallback: tenta injetar depois de 2s caso DOM já esteja pronto
+  setTimeout(injetarPainelPix, 2000);
+
+  console.log('[PIX MP] Integração carregada ✓ API:', PIX_API_URL);
+})();
+"></script>
   </body>
 
 </html>
